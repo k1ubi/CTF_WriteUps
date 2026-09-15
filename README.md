@@ -35,6 +35,7 @@ The actual commands, screenshots and dead ends are kept in, this is not a cleane
 | **UnderPass** | SNMP leaks a username + daloRADIUS install → default creds on `/operators/` → cracked `svcMosh` hash → `mosh`-based sudo privesc | `► rooted` | [UnderPass WriteUp.md](<HackTheBox/UnderPass/UnderPass WriteUp.md>) |
 | **EscapeTwo** | AD/MSSQL box (`sequel.htb`), shared `.xlsx` leaks `sa` creds → `xp_cmdshell` RCE via MSHTA → hunting `sql_svc` cred reuse | `► in progress` | [EscapeTwo.md](<HackTheBox/EscapeTwo/EscapeTwo.md>) |
 | **Nexus** | Static decoy site hides two real vhosts → git history leaks a redacted DB password → CRM cred reuse → CVE-2026-38526 upload RCE → `.env` on disk → SSH cred reuse → root via git-tree path traversal in a root-run sync timer | `► rooted` | [Nexus WriteUp.md](<HackTheBox/Nexus/Nexus WriteUp.md>) |
+| **Management** | OpenAM pre-auth deser RCE via `jato.clientSession` (CVE-2026-33439, the twin of the CVE-2021-35464 fix) → internal GLPI DB creds → LDAP bind password decrypted with GLPI's own key → SSH cred reuse → root via pre-vet `pickle.loads` in `sudo rdiff-backup --server` | `► rooted` | [Management WriteUp.md](<HackTheBox/Management/Management WriteUp.md>) |
 
 <br>
 
