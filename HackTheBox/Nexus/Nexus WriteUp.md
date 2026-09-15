@@ -136,10 +136,10 @@ $ sshpass -p 'y27xb3ha!!74GbR' ssh jones@nexus.htb id
 uid=1000(jones) gid=1000(jones) groups=1000(jones),100(users)
 
 $ cat /home/jones/user.txt
-e09b49a662941f0fa0970a1191d296e3
+[REDACTED]
 ```
 
-**user.txt**: `e09b49a662941f0fa0970a1191d296e3`
+**user.txt**: `[REDACTED]`
 
 `sudo -l` for jones comes back empty, no rule at all, so no easy sudo path. Time to look at
 what's running as root instead.
@@ -208,10 +208,10 @@ key straight into root's keyring:
 ```
 $ ssh -i nexus_root_key root@nexus.htb 'id; cat /root/root.txt'
 uid=0(root) gid=0(root) groups=0(root)
-0176e3d03c2bbf830fa3e3a3cc2de6ef
+[REDACTED]
 ```
 
-**root.txt**: `0176e3d03c2bbf830fa3e3a3cc2de6ef`
+**root.txt**: `[REDACTED]`
 
 Notes for later: a polished front-end is not the attack surface, it's camouflage, the real box
 was two vhosts behind it. Redacting a secret in a new commit does nothing, git history keeps it

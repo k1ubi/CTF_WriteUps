@@ -139,10 +139,10 @@ Quella password non entra in LDAP con l'utente `svc-glpi`, ma il riuso non e mai
 
 ```
 $ sshpass -p 'WpczC40GhTbk' ssh owen@management.htb 'cat user.txt'
-577ab58b3946a126ce584b0f0a0e9165
+[REDACTED]
 ```
 
-**user.txt**: `577ab58b3946a126ce584b0f0a0e9165`
+**user.txt**: `[REDACTED]`
 
 <br>
 
@@ -196,10 +196,10 @@ $ ls -la /tmp/rootbash
 
 $ /tmp/rootbash -p -c 'id; cat /root/root.txt'
 uid=1000(owen) gid=1000(owen) euid=0(root)
-c88a43d2cc0e2b417c032c93a7774612
+[REDACTED]
 ```
 
-**root.txt**: `c88a43d2cc0e2b417c032c93a7774612`
+**root.txt**: `[REDACTED]`
 
 <br>
 
