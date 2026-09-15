@@ -34,6 +34,7 @@ with the actual commands, screenshots, and dead ends kept in — not a cleaned-u
 | **Dog** | Exposed `.git` on Backdrop CMS → hardcoded DB creds → tar-upload RCE → mysql hash dump → password reuse over SSH → `sudo bee ev` to root | `► rooted` | [Dog Writeup.md](<HackTheBox/Dog/Dog Writeup.md>) |
 | **UnderPass** | SNMP leaks a username + daloRADIUS install → default creds on `/operators/` → cracked `svcMosh` hash → `mosh`-based sudo privesc | `► rooted` | [UnderPass WriteUp.md](<HackTheBox/UnderPass/UnderPass WriteUp.md>) |
 | **EscapeTwo** | AD/MSSQL box (`sequel.htb`) — shared `.xlsx` leaks `sa` creds → `xp_cmdshell` RCE via MSHTA → hunting `sql_svc` cred reuse | `► in progress` | [EscapeTwo.md](<HackTheBox/EscapeTwo/EscapeTwo.md>) |
+| **Nexus** | Static decoy site hides two real vhosts → git history leaks a redacted DB password → CRM cred reuse → CVE-2026-38526 upload RCE → `.env` on disk → SSH cred reuse → root via git-tree path traversal in a root-run sync timer | `► rooted` | [Nexus WriteUp.md](<HackTheBox/Nexus/Nexus WriteUp.md>) |
 
 <br>
 
