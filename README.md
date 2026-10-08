@@ -1,20 +1,5 @@
 <div align="center">
-
-```
- _____ ___________   _    _______ _____ _____ _____ _   _______  _____ 
-/  __ \_   _|  ___| | |  | | ___ \_   _|_   _|  ___| | | | ___ \/  ___|
-| /  \/ | | | |_    | |  | | |_/ / | |   | | | |__ | | | | |_/ /\ `--. 
-| |     | | |  _|   | |/\| |    /  | |   | | |  __|| | | |  __/  `--. \
-| \__/\ | | | |     \  /\  / |\ \ _| |_  | | | |___| |_| | |    /\__/ /
- \____/ \_/ \_|      \/  \/\_| \_|\___/  \_/ \____/ \___/\_|    \____/
-```
-
-`[ HackTheBox :: recon -> foothold -> root, logged ]`
-
-![hackthebox](https://img.shields.io/badge/HACKTHEBOX-ff00c8?style=for-the-badge&logo=hackthebox&logoColor=00fff9&labelColor=0a0014)
-![linux](https://img.shields.io/badge/TARGETS-LINUX_%2F_AD-00fff9?style=for-the-badge&logo=linux&logoColor=0a0014&labelColor=0a0014)
-![hashcat](https://img.shields.io/badge/CRACKING-HASHCAT-ff00c8?style=for-the-badge&logo=hashcat&logoColor=00fff9&labelColor=0a0014)
-
+<img src="./assets/hero.svg" width="100%"/>
 </div>
 
 <br>
